@@ -5,6 +5,63 @@ from .data_utils import pkload
 import matplotlib.pyplot as plt
 
 import numpy as np
+import pandas as pd
+import nibabel as nib
+
+
+class CSVPairDataset(Dataset):
+    def __init__(self, csv_path, mode='train', transforms=None):
+        """
+        Reads your paired CSV.
+        mode: 'train' or 'val'. Uses the 'train' column to filter if available.
+        """
+        self.df = pd.read_csv(csv_path)
+        
+        # Filter by 'train' column if it exists (TRUE/FALSE)
+        if 'train' in self.df.columns:
+            if mode == 'train':
+                self.df = self.df[self.df['train'] == True]
+            else:
+                self.df = self.df[self.df['train'] == False]
+        
+        # Reset index after filtering
+        self.df = self.df.reset_index(drop=True)
+        self.transforms = transforms
+        print(f"Dataset ({mode}): {len(self.df)} pairs loaded.")
+
+    def __len__(self):
+        return len(self.df)
+
+    def load_nifti(self, path):
+        # Load NIfTI and ensure float32
+        if pd.isna(path) or path == 'None':
+            return None
+        img = nib.load(path).get_fdata()
+        tensor = torch.from_numpy(img).float()
+        # Add channel dim: (H, W, D) -> (1, H, W, D)
+        if tensor.ndim == 3:
+            tensor = tensor.unsqueeze(0)
+        return tensor
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        
+        # 1. Load Images (Moving & Fixed)
+        moving = self.load_nifti(row['moving_img_path'])
+        fixed = self.load_nifti(row['fixed_img_path'])
+        
+        # 2. Load Segmentations (if they exist)
+        # Note: Validations need segs. Training usually doesn't, but we return placeholders if missing.
+        moving_seg = self.load_nifti(row.get('moving_seg_path'))
+        fixed_seg = self.load_nifti(row.get('fixed_seg_path'))
+
+        # Handle missing segs (create zeros)
+        if moving_seg is None: moving_seg = torch.zeros_like(moving)
+        if fixed_seg is None: fixed_seg = torch.zeros_like(fixed)
+
+        # Return tuple: (moving, fixed, moving_seg, fixed_seg)
+        # matches the 'data' unpacking in the loop
+        return moving, fixed, moving_seg, fixed_seg
 
 
 class JHUBrainDataset(Dataset):
