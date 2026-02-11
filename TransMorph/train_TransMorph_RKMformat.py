@@ -29,6 +29,7 @@ def main():
     # --- CONFIGURATION ---
     csv_path = '/midtier/sablab/scratch/alm4065/preprocess_for_transmorph/new_data_pairs_for_transmorph.csv' # Point to your new CSV
     batch_size = 1
+    NUM_CLASS = 4
     weights = [1, 0.02] # loss weights
     save_dir = 'TransMorph_mse_{}_diffusion_{}/'.format(weights[0], weights[1])
     if not os.path.exists('experiments/'+save_dir):
@@ -173,7 +174,7 @@ def main():
                 output = model(x_in)
                 def_out = reg_model([x_seg.cuda().float(), output[1].cuda()])
                 def_grid = reg_model_bilin([grid_img.float(), output[1].cuda()])
-                dsc = utils.dice_val(def_out.long(), y_seg.long(), 46)
+                dsc = utils.dice_val(def_out.long(), y_seg.long(), NUM_CLASS)
                 eval_dsc.update(dsc.item(), x.size(0))
                 print(eval_dsc.avg)
         best_dsc = max(eval_dsc.avg, best_dsc)
