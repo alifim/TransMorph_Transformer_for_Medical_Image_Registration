@@ -108,6 +108,36 @@ def dice_val(y_pred, y_true, num_clus):
     dsc = (2.*intersection) / (union + 1e-5)
     return torch.mean(torch.mean(dsc, dim=1))
 
+def calc_dice(y_pred, y_true):
+    # 1. Get the unique labels present in the Ground Truth
+    # We ignore 0 (background)
+    present_labels = torch.unique(y_true)
+    present_labels = present_labels[present_labels != 0]
+    
+    if len(present_labels) == 0:
+        return torch.tensor(0.0, device=y_pred.device)
+
+    dice_scores = []
+    
+    # 2. Iterate ONLY over the organs that exist in this image
+    for label in present_labels:
+        l = int(label.item())
+        
+        # Create binary masks for this specific organ
+        # We cast to long() to ensure safe comparison
+        pred_mask = (y_pred.long() == l).float()
+        true_mask = (y_true.long() == l).float()
+        
+        intersection = (pred_mask * true_mask).sum()
+        union = pred_mask.sum() + true_mask.sum()
+        
+        # Standard Dice Formula
+        score = (2. * intersection) / (union + 1e-5)
+        dice_scores.append(score)
+
+    # 3. Return the average of only the VALID organs
+    return torch.mean(torch.stack(dice_scores))
+
 def jacobian_determinant_vxm(disp):
     """
     jacobian determinant of a displacement field.
