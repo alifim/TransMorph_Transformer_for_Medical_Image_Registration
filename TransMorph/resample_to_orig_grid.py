@@ -5,6 +5,7 @@ import nibabel as nib
 import nibabel.processing
 
 # ================= CONFIGURATION =================
+DATASET = "adni"  # or "abdominal_mri"
 TEST_CSV_PATH = "/midtier/sablab/scratch/alm4065/preprocess_for_transmorph/adni_pairs_transmorph_squashed.csv"  # '/midtier/sablab/scratch/alm4065/preprocess_for_transmorph/new_data_pairs_for_transmorph.csv'
 MODEL_DIR = "experiments/TransMorph_adni_mse_1_diffusion_0.02/"
 COMMON_ROOT = "/midtier/sablab/scratch/alm4065/adni_transmorph_squashed"  # or "/midtier/sablab/scratch/alm4065/abdominal_mri/"
@@ -16,8 +17,14 @@ def get_mirror_path(moving_path, fixed_path, suffix="_moved"):
     """Reconstructs the path, appending the target fixed ID to prevent overwrites."""
     rel_path = os.path.relpath(moving_path, COMMON_ROOT)
 
-    # Extract the unique folder name of the fixed image (e.g., 'imageTs/ADNI_002067_0011.nii.gz')
-    fixed_id = os.path.basename(fixed_path).split(".")[0]
+    if DATASET == "adni":
+        # Extract the unique folder name of the fixed image (e.g., 'imageTs/ADNI_002067_0011.nii.gz')
+        fixed_id = os.path.basename(fixed_path).split(".")[0]
+    elif DATASET == "abdominal_mri":
+        # Extract the unique folder name of the fixed image (e.g., '00000000_PrM_...')
+        fixed_id = os.path.basename(os.path.dirname(fixed_path))
+    else:
+        raise ValueError("Unsupported dataset. Please choose 'abdominal_mri' or 'adni'.")
 
     # Inject the fixed_id into the filename so it is unique to this specific pair
     if rel_path.endswith(".nii.gz"):
