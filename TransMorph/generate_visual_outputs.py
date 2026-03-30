@@ -6,15 +6,20 @@ import torch
 from torch.utils.data import DataLoader
 from natsort import natsorted
 
-from models.TransMorph import CONFIGS as CONFIGS_TM
-import models.TransMorph as TransMorph
 from data import datasets
 import utils
 
 # ================= CONFIGURATION =================
 DATASET = "adni"  # or "abdominal_mri"
 TEST_CSV_PATH = "/midtier/sablab/scratch/alm4065/preprocess_for_transmorph/adni_pairs_transmorph_squashed.csv"
-MODEL_DIR = "experiments/TransMorph_adni_mse_1_diffusion_0.02/"
+MODEL_VAR = "TransMorphDiff" # or "TransMorph" 
+if MODEL_VAR == "TransMorph":
+    from models.TransMorph import CONFIGS as CONFIGS_TM
+    import models.TransMorph as TransMorph
+elif MODEL_VAR == "TransMorphDiff":
+    from models.TransMorph_diff import TransMorphDiff, Bilinear
+    from models.TransMorph_diff import CONFIGS as CONFIGS_TM
+MODEL_DIR = "experiments/TransMorphDiff_adni_2/"
 
 # The root to strip off so we can mirror the folder structure
 COMMON_ROOT = "/midtier/sablab/scratch/alm4065/adni_transmorph_squashed"  # or "/midtier/sablab/scratch/alm4065/abdominal_mri/"
@@ -68,7 +73,7 @@ def main():
         os.makedirs(OUTPUT_DIR)
 
     # Setup Model
-    config = CONFIGS_TM["TransMorph"]
+    config = CONFIGS_TM[MODEL_VAR]
     if DATASET == "abdominal_mri":
         # Update Model Config for your 160x160x160 data
         config.img_size = (160, 160, 160)
@@ -84,8 +89,13 @@ def main():
         raise ValueError(
             "Unsupported dataset. Please choose 'abdominal_mri' or 'adni'."
         )
-    img_size = config.img_size
-    model = TransMorph.TransMorph(config)
+    
+    if MODEL_VAR == "TransMorph":
+        img_size = config.img_size
+        model = TransMorph.TransMorph(config)
+    elif MODEL_VAR == "TransMorphDiff":
+        model = TransMorphDiff(config)
+    
     model.cuda()
 
     checkpoints = natsorted(glob.glob(MODEL_DIR + "*.pth.tar"))
@@ -96,8 +106,18 @@ def main():
     model.eval()
 
     # Setup Warping Functions
-    reg_model_label = utils.register_model(img_size, "nearest").cuda()
-    reg_model_img = utils.register_model(img_size, "bilinear").cuda()
+    if MODEL_VAR == "TransMorph":
+        reg_model_label = utils.register_model(img_size, "nearest").cuda()
+        reg_model_img = utils.register_model(img_size, "bilinear").cuda()
+    elif MODEL_VAR == "TransMorphDiff":
+        reg_model_label = Bilinear(zero_boundary=True, mode="nearest").cuda()
+        for param in reg_model_label.parameters():
+            param.requires_grad = False
+            param.volatile = True
+        reg_model_img = Bilinear(zero_boundary=True, mode="bilinear").cuda()
+        for param in reg_model_img.parameters():
+            param.requires_grad = False
+            param.volatile = True
 
     # Data Loaders
     test_set = datasets.CSVPairDatasetwithTransform(TEST_CSV_PATH, mode="val")
@@ -124,13 +144,20 @@ def main():
             x_seg = data_gpu[2]
 
             # Forward Pass
-            x_in = torch.cat((x_moving, y_fixed), dim=1)
-            output = model(x_in)
+            if MODEL_VAR == "TransMorph":
+                x_in = torch.cat((x_moving, y_fixed), dim=1)
+                output = model(x_in)
+            elif MODEL_VAR == "TransMorphDiff":
+                output = model((x_moving, y_fixed))
             flow = output[1]
 
             # Warp the Moving Image and Moving Label
-            moved_img = reg_model_img([x_moving.float(), flow])
-            moved_seg = reg_model_label([x_seg.float(), flow])
+            if MODEL_VAR == "TransMorph":
+                moved_img = reg_model_img([x_moving.float(), flow])
+                moved_seg = reg_model_label([x_seg.float(), flow])
+            elif MODEL_VAR == "TransMorphDiff":
+                moved_img = reg_model_img(x_moving.float(), flow)
+                moved_seg = reg_model_label(x_seg.float(), flow)
 
             # --- Read row and get paths ---
             row = df_csv.iloc[idx]
@@ -159,7 +186,10 @@ def main():
 
             # 1. Delete all variables holding GPU memory
             del data_gpu, x_moving, y_fixed, x_seg
-            del x_in, output, flow, moved_img, moved_seg
+            del output, flow, moved_img, moved_seg
+
+            if MODEL_VAR == "TransMorph":
+                del x_in
 
             # 2. Force Python to run garbage collection
             gc.collect()
